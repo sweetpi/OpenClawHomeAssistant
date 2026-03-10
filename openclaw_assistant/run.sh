@@ -394,7 +394,7 @@ fi
 # ------------------------------------------------------------------------------
 
 gateway_running() {
-  pgrep -f "openclaw.*gateway.*run" >/dev/null 2>&1
+  pgrep -f "openclaw-gateway" >/dev/null 2>&1
 }
 
 cleanup_session_locks() {
@@ -489,7 +489,14 @@ shutdown() {
 
   if [ -n "${GW_PID}" ] && kill -0 "${GW_PID}" >/dev/null 2>&1; then
     kill -TERM "${GW_PID}" >/dev/null 2>&1 || true
-    wait "${GW_PID}" || true
+    # wait reaps child PIDs; for non-child (re-tracked) PIDs it fails instantly,
+    # so fall back to a timed kill -0 poll to let the gateway finish cleanly.
+    if ! wait "${GW_PID}" 2>/dev/null; then
+      for _i in 1 2 3 4 5; do
+        kill -0 "${GW_PID}" 2>/dev/null || break
+        sleep 1
+      done
+    fi
   fi
 
   stop_gw_relay
@@ -971,25 +978,55 @@ fi
 
 # Keep add-on alive even if gateway/node runtime restarts itself (e.g. during onboarding).
 # If runtime exits unexpectedly, restart it while nginx/ttyd stay up.
+#
+# Design notes (issue #95):
+#   `openclaw gateway run` is a thin wrapper that spawns `openclaw-gateway` as a
+#   long-running daemon and then exits. When the gateway self-restarts (SIGUSR1 /
+#   `openclaw gateway restart`), the old daemon exits and a NEW daemon is forked —
+#   the new PID is NOT a child of this shell so `wait` cannot block on it.
+#   Strategy:
+#     1. `wait` for our child (the wrapper). When it exits, check if the daemon
+#        is still alive (`pgrep`). If yes → re-track and poll with `kill -0`.
+#     2. When the re-tracked daemon eventually exits (crash or another restart),
+#        `kill -0` fails, we check again for a live daemon to re-track, or restart.
+GW_IS_CHILD=true   # true only when GW_PID was started by us (can use `wait`)
+
 while true; do
-  GW_EXIT_CODE=0
-  wait "${GW_PID}" || GW_EXIT_CODE=$?
+  if [ "$GW_IS_CHILD" = "true" ]; then
+    # Efficient blocking wait on our child process.
+    GW_EXIT_CODE=0
+    wait "${GW_PID}" 2>/dev/null || GW_EXIT_CODE=$?
+  else
+    # GW_PID is NOT our child (re-tracked after a self-restart).
+    # Poll with kill -0 until it exits.
+    while kill -0 "$GW_PID" 2>/dev/null; do
+      if [ "$SHUTTING_DOWN" = "true" ]; then break 2; fi
+      sleep 5
+    done
+    GW_EXIT_CODE=0
+  fi
 
   if [ "$SHUTTING_DOWN" = "true" ]; then
     break
   fi
 
-  # Detect agent/user-initiated self-restart (e.g. 'openclaw gateway restart').
-  # 'openclaw gateway run' spawns 'openclaw-gateway' as the actual long-running
-  # daemon; the launcher wrapper exits immediately. The old pattern '.*run' never
-  # matched the live daemon name, so the supervisor always fell through to the
-  # restart path, hit the gateway still on the port, and looped forever.
-  # Use the broader pattern that matches both 'openclaw-gateway' and 'openclaw node run'.
-  sleep 1
-  RESTARTED_PID=$(pgrep -f "openclaw.*(gateway|node)" 2>/dev/null | head -1 || true)
-  if [ -n "$RESTARTED_PID" ] && [ "$RESTARTED_PID" != "$GW_PID" ]; then
-    echo "INFO: OpenClaw runtime restarted itself (new PID $RESTARTED_PID); re-tracking."
+  # Give a potential self-restart time to spawn the new daemon.
+  sleep 2
+
+  # Detect self-restart: look for a live `openclaw-gateway` process.
+  # If one exists, the runtime restarted itself — re-track and monitor
+  # instead of spawning a duplicate (which would collide on the port).
+  RESTARTED_PID=""
+  if [ "$GATEWAY_MODE" != "remote" ]; then
+    RESTARTED_PID=$(pgrep -f "openclaw-gateway" 2>/dev/null | head -1 || true)
+  else
+    RESTARTED_PID=$(pgrep -f "openclaw.*node.*run" 2>/dev/null | head -1 || true)
+  fi
+
+  if [ -n "$RESTARTED_PID" ]; then
+    echo "INFO: OpenClaw runtime restarted itself (new PID $RESTARTED_PID); monitoring."
     GW_PID="$RESTARTED_PID"
+    GW_IS_CHILD=false
     continue
   fi
 
@@ -1005,6 +1042,7 @@ while true; do
     echo "ERROR: Failed to restart OpenClaw runtime; retrying in 5s..."
     sleep 5
   else
+    GW_IS_CHILD=true
     start_gw_relay
   fi
 done

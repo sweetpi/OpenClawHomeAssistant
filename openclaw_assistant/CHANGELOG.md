@@ -2,10 +2,10 @@
 
 All notable changes to the OpenClaw Assistant Home Assistant Add-on will be documented in this file.
 
-## [0.5.61] - 2026-03-10
+## [0.5.62] - 2026-03-10
 
 ### Fixed
-- **Gateway restart loop** (issue #95): `openclaw gateway run` spawns `openclaw-gateway` as the actual long-running daemon; the launcher wrapper exits immediately. The old self-restart detection used `pgrep -f "openclaw.*(gateway|node).*run"` which never matched the live daemon name, so the supervisor always fell through to the restart path, found the port occupied, and looped forever with "already listening". Fixed by using the pattern `openclaw.*(gateway|node)` (without `.*run`) which correctly matches `openclaw-gateway`. Additionally, the loopback relay (tailnet mode) is now stopped before restarting the gateway and restarted after, preventing it from holding the port during supervisor-initiated restarts.
+- **Gateway restart loop** (issue #95): `openclaw gateway run` is a thin wrapper that spawns `openclaw-gateway` as a long-running daemon then exits. The supervisor had two bugs: (1) `pgrep` pattern `"openclaw.*(gateway|node).*run"` never matched the daemon name `openclaw-gateway`, so self-restarts were never detected; (2) after re-tracking a self-restarted PID, `wait` failed with "pid N is not a child of this shell" (exit 127) because the new daemon was spawned by the old one, not by run.sh. The supervisor loop now uses `pgrep -f "openclaw-gateway"` for reliable daemon detection and switches to `kill -0` polling for non-child PIDs instead of `wait`. The loopback relay (tailnet mode) is also stopped/restarted around supervisor-initiated gateway restarts to prevent port conflicts.
 
 ## [0.5.60] - 2026-03-10
 
