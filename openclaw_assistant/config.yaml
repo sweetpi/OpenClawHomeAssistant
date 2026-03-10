@@ -133,6 +133,11 @@ options:
   # Limits: max 50 variables, max key length 255 chars, max value length 10000 chars
   gateway_env_vars: []
 
+  # Auto-configure MCP (Model Context Protocol) for Home Assistant.
+  # When enabled and homeassistant_token is set, automatically registers HA as an
+  # MCP server in OpenClaw so the AI can control Home Assistant entities/services.
+  auto_configure_mcp: false
+
 
 schema:
   timezone: str
@@ -163,4 +168,4 @@ schema:
     - name: "match(^[A-Z_][A-Z0-9_]*$)"
       value: str
   nginx_log_level: list(full|minimal)?
-
+  auto_configure_mcp: bool?

@@ -313,8 +313,7 @@ To provide the SSH key: place the private key file in the add-on config director
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `clean_session_locks_on_start` | bool | `true` | Remove stale session lock files on startup (safe — only removes locks when gateway isn't running) |
-| `clean_session_locks_on_exit` | bool | `true` | Remove session lock files on clean shutdown |
-
+| `clean_session_locks_on_exit` | bool | `true` | Remove session lock files on clean shutdown || `auto_configure_mcp` | bool | `false` | Auto-register Home Assistant as an MCP server on startup (requires `homeassistant_token`) |
 ---
 
 ## 6. Use Case Guides
@@ -479,6 +478,71 @@ You can now use Assist (voice or text) and OpenClaw will handle conversations, c
 ### 6d. Browser Automation (Chromium)
 
 The add-on includes **Chromium** for browser-based automation tasks. OpenClaw can use it for web scraping, form filling, website testing, and other browser automation skills.
+
+### 6d-mcp. MCP Integration (Home Assistant Control)
+
+The **Model Context Protocol (MCP)** lets OpenClaw communicate directly with Home Assistant — reading entity states, calling services, creating automations, and more. This is the recommended way to give OpenClaw full control over your smart home.
+
+#### Automatic setup (recommended)
+
+1. Create a **long-lived access token** in Home Assistant:
+   - Go to your HA profile page (click your user avatar at the bottom of the sidebar)
+   - Scroll to **Long-Lived Access Tokens** → **Create Token**
+   - Give it a name (e.g. "OpenClaw") and copy the token
+2. Paste the token into the add-on option **Home Assistant Token** (`homeassistant_token`) in **Settings → Add-ons → OpenClaw Assistant → Configuration**
+3. Set **Auto-Configure MCP for Home Assistant** (`auto_configure_mcp`) to **ON**
+4. Restart the add-on
+
+The add-on will automatically register Home Assistant as an MCP server named `HA` using `mcporter`. It auto-detects the HA API URL (supervisor proxy when available, otherwise `localhost:8123`). Check the logs for:
+```
+INFO: MCP server 'HA' registered — OpenClaw can now control Home Assistant
+```
+
+On subsequent restarts, the configuration is skipped if the token hasn’t changed.
+
+#### Manual setup
+
+If you prefer to configure MCP manually (or `auto_configure_mcp` is off), run this in the add-on terminal:
+
+```sh
+mcporter config add HA "http://localhost:8123/api/mcp" \
+  --header "Authorization=Bearer YOUR_LONG_LIVED_TOKEN" \
+  --scope home
+```
+
+Replace `YOUR_LONG_LIVED_TOKEN` with your HA long-lived access token.
+
+#### Verifying MCP works
+
+After setup, ask OpenClaw something like:
+- _"Turn off the living room lights"_
+- _"What’s the temperature of the bedroom sensor?"_
+- _"List all entities in the kitchen"_
+
+If OpenClaw can execute HA actions, MCP is working.
+
+#### Refreshing HA context after upgrades
+
+If OpenClaw has stale or missing Home Assistant data after an upgrade, run:
+
+```sh
+mcporter call home-assistant.GetLiveContext
+```
+
+This refreshes the entity/service metadata that OpenClaw uses.
+
+#### Model requirements
+
+MCP setup requires an AI model that understands tool/skill invocation. Budget models (e.g. Gemini 2.5 Flash) may struggle with the initial MCP discovery. For the **first-time setup**, use a capable model (e.g. Gemini 3.1 Pro, Claude Sonnet 4, GPT-4.1). After MCP is configured, you can switch back to a cheaper model for daily use.
+
+#### Troubleshooting MCP
+
+| Symptom | Fix |
+|---|---|
+| `mcporter: command not found` | Run `openclaw onboard` first, then restart the add-on |
+| MCP add fails with auth error | Verify your long-lived token is valid and not expired |
+| OpenClaw doesn’t see HA entities | Run `mcporter call home-assistant.GetLiveContext` to refresh |
+| Model says “what’s MCP?” | Switch to a more capable model for the initial session (see above) |
 
 To enable it, add to `/config/.openclaw/openclaw.json`:
 
