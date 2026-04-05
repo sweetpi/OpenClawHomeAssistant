@@ -112,9 +112,9 @@ RUN if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then \
     fi
 USER root
 
-# Install OpenClaw globally
+# Install OpenClaw globally (fork with replyMode tool-only PR #57914)
 RUN npm config set fund false && npm config set audit false \
-    && npm install -g openclaw@2026.4.2
+    && npm install -g "github:sweetpi/openclaw#main"
 
 # Shell aliases and color options for interactive use
 RUN tee -a /etc/bash.bashrc <<'EOF'
