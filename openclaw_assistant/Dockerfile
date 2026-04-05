@@ -112,18 +112,13 @@ RUN if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then \
     fi
 USER root
 
-# Install build dependencies for native npm modules (sharp, sqlite-vec)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    cmake \
-    pkg-config \
-    libvips-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Install OpenClaw globally
+RUN npm config set fund false && npm config set audit false \
+    && npm install -g openclaw@2026.4.2
 
-# Install OpenClaw globally (fork with replyMode tool-only PR #57914)
-RUN ln -sf /bin/bash /bin/sh 2>/dev/null || true \
-    && npm config set fund false && npm config set audit false \
-    && npm install -g "github:sweetpi/openclaw#main"
+# Patch replyMode tool-only support (PR #57914) into compiled JS
+COPY patches/apply-replymode.sh /tmp/apply-replymode.sh
+RUN chmod +x /tmp/apply-replymode.sh && /tmp/apply-replymode.sh && rm /tmp/apply-replymode.sh
 
 # Shell aliases and color options for interactive use
 RUN tee -a /etc/bash.bashrc <<'EOF'
