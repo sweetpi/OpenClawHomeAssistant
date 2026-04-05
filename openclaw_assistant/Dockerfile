@@ -112,6 +112,14 @@ RUN if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then \
     fi
 USER root
 
+# Install build dependencies for native npm modules (sharp, sqlite-vec)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake \
+    pkg-config \
+    libvips-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install OpenClaw globally (fork with replyMode tool-only PR #57914)
 RUN ln -sf /bin/bash /bin/sh 2>/dev/null || true \
     && npm config set fund false && npm config set audit false \
